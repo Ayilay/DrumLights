@@ -2,38 +2,38 @@
 #include "driver/i2s_std.h"
 #include <FastLED.h>
 
+// ================== SENSITIVITY KNOBS ==================
+#define PEAK_THRESHOLD     1000
+#define HOLD_TIME_MS       50
+
 // ================== PIN CONFIG ==================
 #define I2S_BCLK_PIN   GPIO_NUM_3
 #define I2S_WS_PIN     GPIO_NUM_4
 #define I2S_DATA_PIN   GPIO_NUM_10
 #define LED_PIN        GPIO_NUM_8
 
-// ================== DETECTOR CONFIG =================
+// ================== I2S DETECTOR CONFIG =================
 #define SAMPLE_RATE        4000
-#define BUFFER_SAMPLES     64       // Reduced from 128 for snappier response
-#define PEAK_THRESHOLD     600
-#define HOLD_TIME_MS       200
+#define BUFFER_SAMPLES     64
 #define TRIGGER_PLOT_LEVEL PEAK_THRESHOLD
 
-#define I2S_PORT I2S_NUM_0
+// ================= LED CONFIG =================
 
-/* ================= LED CONFIG ================= */
-
-#define NUM_LEDS      50
+#define NUM_LEDS      54
 #define LED_TYPE      WS2812B
 #define COLOR_ORDER   GRB
 
-#define MAX_BRIGHTNESS 80
-#define DECAY_FACTOR   0.60f   // 0.90 = fast decay, 0.98 = slow decay
-#define UPDATE_MS      5       // decay update rate
+#define MAX_BRIGHTNESS 128     // Max is 255. BEWARE, too high is dangerous
+#define DECAY_FACTOR   0.50f   // Smaller is faster
+#define LED_UPDATE_MS  5       // Smaller is smoother
 
-/* ================= LED STATE ================= */
+// ================= LED STATE =================
 
 float currentBrightness = 0.0f;
-uint32_t lastUpdateMs = 0;
 CRGB leds[NUM_LEDS];
 
-// ================== I2S Channel Handler and Buffer =================
+// ================== I2S STATE  =================
+
 int32_t sampleBuffer[BUFFER_SAMPLES];
 i2s_chan_handle_t rx_chan;
 bool triggerActive = false;
@@ -48,19 +48,19 @@ void setup()
   Serial.begin(115200);
   delay(1000);
 
-  // Channel
+  // ======================================================================
+  // I2S Init
+
   i2s_chan_config_t chan_cfg =
     I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
   i2s_new_channel(&chan_cfg, NULL, &rx_chan);
 
-  // Clock: same rate you used successfully (e.g. 4 kHz)
   i2s_std_clk_config_t clk_cfg =
     I2S_STD_CLK_DEFAULT_CONFIG(SAMPLE_RATE);
 
-  // SLOT CONFIG — THIS IS THE KEY LINE
   i2s_std_slot_config_t slot_cfg =
     I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(
-        I2S_DATA_BIT_WIDTH_32BIT,   // 24-bit data in 32-bit slot
+        I2S_DATA_BIT_WIDTH_32BIT,
         I2S_SLOT_MODE_MONO
         );
 
@@ -75,11 +75,11 @@ void setup()
     .din  = I2S_DATA_PIN,
   };
 
-   i2s_std_config_t std_cfg = {
-        .clk_cfg  = clk_cfg,
-        .slot_cfg = slot_cfg,
-        .gpio_cfg = gpio_cfg,
-    };
+  i2s_std_config_t std_cfg = {
+    .clk_cfg  = clk_cfg,
+    .slot_cfg = slot_cfg,
+    .gpio_cfg = gpio_cfg,
+  };
 
   i2s_channel_init_std_mode(rx_chan, &std_cfg);
   i2s_channel_enable(rx_chan);
@@ -96,12 +96,12 @@ void loop()
   size_t bytesRead = 0;
 
   i2s_channel_read(
-    rx_chan,
-    sampleBuffer,
-    sizeof(sampleBuffer),
-    &bytesRead,
-    portMAX_DELAY
-  );
+      rx_chan,
+      sampleBuffer,
+      sizeof(sampleBuffer),
+      &bytesRead,
+      portMAX_DELAY
+      );
 
   int samplesRead = bytesRead / sizeof(sampleBuffer[0]);
   int32_t peak = 0;
@@ -128,14 +128,50 @@ void loop()
     if (!triggerActive && (now - lastTriggerTime > HOLD_TIME_MS)) {
       triggerActive = true;
       lastTriggerTime = now;
-      stimulusEvent();
+
+      // Threshold detected --> Do the LED stimulus action
+      LED_Update_Stimulus();
     }
   } else {
     triggerActive = false;
   }
 
   // ================== BRIGHTNESS DECAY ==================
-  if (now - lastUpdateMs >= UPDATE_MS) {
+  LED_Update_Loop( now );
+
+  // ================== SERIAL PLOTTER OUTPUT ==================
+  Serial.print(peak);
+  Serial.print(",");
+  Serial.print(triggerActive ? TRIGGER_PLOT_LEVEL : 0);
+  Serial.print(",");
+  Serial.println(PEAK_THRESHOLD);
+}
+
+// ================================================================================
+// LED Update Routines
+// ================================================================================
+
+/*
+ *  This is called once when the drum hit is detected
+ */
+void LED_Update_Stimulus()
+{
+  currentBrightness = MAX_BRIGHTNESS;
+
+  // Try other colors from here:
+  // https://fastled.io/docs/d7/d82/struct_c_r_g_b_aeb40a08b7cb90c1e21bd408261558b99.html#aeb40a08b7cb90c1e21bd408261558b99
+  fill_solid(leds, NUM_LEDS, CRGB::HotPink);
+}
+
+/*
+ *  This is called once per loop
+ */
+void LED_Update_Loop( unsigned long now )
+{
+  static unsigned long lastUpdateMs = 0;
+
+  // Exponential brightness decay
+  if (now - lastUpdateMs >= LED_UPDATE_MS) {
     lastUpdateMs = now;
 
     if (currentBrightness > 1.0f) {
@@ -147,18 +183,4 @@ void loop()
     FastLED.setBrightness((uint8_t)currentBrightness);
     FastLED.show();
   }
-
-  // ================== SERIAL PLOTTER OUTPUT ==================
-  Serial.print(peak);
-  Serial.print(",");
-  Serial.print(triggerActive ? TRIGGER_PLOT_LEVEL : 0);
-  Serial.print(",");
-  Serial.println(PEAK_THRESHOLD);
-}
-
-void stimulusEvent() {
-  currentBrightness = MAX_BRIGHTNESS;
-
-  // Set desired stimulus color here
-  fill_solid(leds, NUM_LEDS, CRGB::HotPink);
 }
