@@ -158,9 +158,14 @@ void LED_Update_Stimulus()
 {
   currentBrightness = MAX_BRIGHTNESS;
 
+  // Max for each is 255
+  uint8_t red   = 240;
+  uint8_t green = 30;
+  uint8_t blue  = 20;
+
   // Try other colors from here:
   // https://fastled.io/docs/d7/d82/struct_c_r_g_b_aeb40a08b7cb90c1e21bd408261558b99.html#aeb40a08b7cb90c1e21bd408261558b99
-  fill_solid(leds, NUM_LEDS, CRGB::HotPink);
+  fill_solid(leds, NUM_LEDS, CRGB( red, green, blue ));
 }
 
 /*
