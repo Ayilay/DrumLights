@@ -1,29 +1,50 @@
 #include <Arduino.h>
 #include "driver/i2s_std.h"
+#include <FastLED.h>
 
-// ================== I2S PIN CONFIG ==================
+// ================== PIN CONFIG ==================
 #define I2S_BCLK_PIN   GPIO_NUM_3
 #define I2S_WS_PIN     GPIO_NUM_4
 #define I2S_DATA_PIN   GPIO_NUM_10
+#define LED_PIN        GPIO_NUM_8
 
 // ================== DETECTOR CONFIG =================
 #define SAMPLE_RATE        4000
 #define BUFFER_SAMPLES     64       // Reduced from 128 for snappier response
-#define PEAK_THRESHOLD     1000
+#define PEAK_THRESHOLD     600
 #define HOLD_TIME_MS       200
 #define TRIGGER_PLOT_LEVEL PEAK_THRESHOLD
 
 #define I2S_PORT I2S_NUM_0
 
+/* ================= LED CONFIG ================= */
+
+#define NUM_LEDS      50
+#define LED_TYPE      WS2812B
+#define COLOR_ORDER   GRB
+
+#define MAX_BRIGHTNESS 80
+#define DECAY_FACTOR   0.60f   // 0.90 = fast decay, 0.98 = slow decay
+#define UPDATE_MS      5       // decay update rate
+
+/* ================= LED STATE ================= */
+
+float currentBrightness = 0.0f;
+uint32_t lastUpdateMs = 0;
+CRGB leds[NUM_LEDS];
+
 // ================== I2S Channel Handler and Buffer =================
 int32_t sampleBuffer[BUFFER_SAMPLES];
 i2s_chan_handle_t rx_chan;
-
-// Detector state
 bool triggerActive = false;
 unsigned long lastTriggerTime = 0;
 
-void setup() {
+// ================================================================================
+// Code Begin
+// ================================================================================
+
+void setup()
+{
   Serial.begin(115200);
   delay(1000);
 
@@ -60,12 +81,18 @@ void setup() {
         .gpio_cfg = gpio_cfg,
     };
 
-    i2s_channel_init_std_mode(rx_chan, &std_cfg);
-    i2s_channel_enable(rx_chan);
+  i2s_channel_init_std_mode(rx_chan, &std_cfg);
+  i2s_channel_enable(rx_chan);
 
+  // ======================================================================
+  // LED Init
+  FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
+  FastLED.setBrightness(MAX_BRIGHTNESS);
 }
 
-void loop() {
+void loop()
+{
+  unsigned long now = millis();
   size_t bytesRead = 0;
 
   i2s_channel_read(
@@ -96,16 +123,29 @@ void loop() {
   peak = (peak * 3 + lastPeak) / 4;
   lastPeak = peak;
 
-  unsigned long now = millis();
-
   // Threshold logic with holdoff
   if (peak > PEAK_THRESHOLD) {
     if (!triggerActive && (now - lastTriggerTime > HOLD_TIME_MS)) {
       triggerActive = true;
       lastTriggerTime = now;
+      stimulusEvent();
     }
   } else {
     triggerActive = false;
+  }
+
+  // ================== BRIGHTNESS DECAY ==================
+  if (now - lastUpdateMs >= UPDATE_MS) {
+    lastUpdateMs = now;
+
+    if (currentBrightness > 1.0f) {
+      currentBrightness *= DECAY_FACTOR;
+    } else {
+      currentBrightness = 0.0f;
+    }
+
+    FastLED.setBrightness((uint8_t)currentBrightness);
+    FastLED.show();
   }
 
   // ================== SERIAL PLOTTER OUTPUT ==================
@@ -116,3 +156,9 @@ void loop() {
   Serial.println(PEAK_THRESHOLD);
 }
 
+void stimulusEvent() {
+  currentBrightness = MAX_BRIGHTNESS;
+
+  // Set desired stimulus color here
+  fill_solid(leds, NUM_LEDS, CRGB::HotPink);
+}
