@@ -1,18 +1,10 @@
 #include <Arduino.h>
-#include "driver/i2s.h"
-
-#define GPIO4  ((gpio_num_t) D2)
-#define GPIO5  ((gpio_num_t) D3)
-#define GPIO6  ((gpio_num_t) D4)
-#define GPIO7  ((gpio_num_t) D5)
-#define GPIO3  ((gpio_num_t) D1)
-#define GPIO10 ((gpio_num_t) D10)
-#define GPIO8  ((gpio_num_t) D8)
+#include "driver/i2s_std.h"
 
 // ================== I2S PIN CONFIG ==================
-#define I2S_BCLK_PIN   GPIO3
-#define I2S_WS_PIN     GPIO4
-#define I2S_DATA_PIN   GPIO10
+#define I2S_BCLK_PIN   GPIO_NUM_3
+#define I2S_WS_PIN     GPIO_NUM_4
+#define I2S_DATA_PIN   GPIO_NUM_10
 
 // ================== DETECTOR CONFIG =================
 #define SAMPLE_RATE        4000
@@ -23,7 +15,9 @@
 
 #define I2S_PORT I2S_NUM_0
 
-int16_t sampleBuffer[BUFFER_SAMPLES];
+// ================== I2S Channel Handler and Buffer =================
+int32_t sampleBuffer[BUFFER_SAMPLES];
+i2s_chan_handle_t rx_chan;
 
 // Detector state
 bool triggerActive = false;
@@ -33,55 +27,72 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
 
-  i2s_config_t i2s_config = {
-    .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
-    .sample_rate = SAMPLE_RATE,
-    .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
-    .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
-    .communication_format = I2S_COMM_FORMAT_I2S,
-    .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
-    .dma_buf_count = 4,
-    .dma_buf_len = BUFFER_SAMPLES,
-    .use_apll = false,
-    .tx_desc_auto_clear = false,
-    .fixed_mclk = 0
+  // Channel
+  i2s_chan_config_t chan_cfg =
+    I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
+  i2s_new_channel(&chan_cfg, NULL, &rx_chan);
+
+  // Clock: same rate you used successfully (e.g. 4 kHz)
+  i2s_std_clk_config_t clk_cfg =
+    I2S_STD_CLK_DEFAULT_CONFIG(SAMPLE_RATE);
+
+  // SLOT CONFIG — THIS IS THE KEY LINE
+  i2s_std_slot_config_t slot_cfg =
+    I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(
+        I2S_DATA_BIT_WIDTH_32BIT,   // 24-bit data in 32-bit slot
+        I2S_SLOT_MODE_MONO
+        );
+
+  // Select LEFT channel (INMP441 L/R pin = GND)
+  slot_cfg.slot_mask = I2S_STD_SLOT_LEFT;
+
+  i2s_std_gpio_config_t gpio_cfg = {
+    .mclk = I2S_GPIO_UNUSED,
+    .bclk = I2S_BCLK_PIN,
+    .ws   = I2S_WS_PIN,
+    .dout = I2S_GPIO_UNUSED,
+    .din  = I2S_DATA_PIN,
   };
 
-  i2s_pin_config_t pin_config = {
-    .bck_io_num = I2S_BCLK_PIN,
-    .ws_io_num = I2S_WS_PIN,
-    .data_out_num = I2S_PIN_NO_CHANGE,
-    .data_in_num = I2S_DATA_PIN
-  };
+   i2s_std_config_t std_cfg = {
+        .clk_cfg  = clk_cfg,
+        .slot_cfg = slot_cfg,
+        .gpio_cfg = gpio_cfg,
+    };
 
-  i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL);
-  i2s_set_pin(I2S_PORT, &pin_config);
-  i2s_zero_dma_buffer(I2S_PORT);
+    i2s_channel_init_std_mode(rx_chan, &std_cfg);
+    i2s_channel_enable(rx_chan);
+
 }
 
 void loop() {
   size_t bytesRead = 0;
 
-  i2s_read(
-    I2S_PORT,
+  i2s_channel_read(
+    rx_chan,
     sampleBuffer,
     sizeof(sampleBuffer),
     &bytesRead,
     portMAX_DELAY
   );
 
-  int samplesRead = bytesRead / sizeof(int16_t);
-  int16_t peak = 0;
+  int samplesRead = bytesRead / sizeof(sampleBuffer[0]);
+  int32_t peak = 0;
 
   // Peak detection
   for (int i = 0; i < samplesRead; i++) {
-    int16_t v = sampleBuffer[i];
+
+    int32_t v = sampleBuffer[i];
+
+    // 24-bits resolution is alot. Toss the 8 least significant bits
+    v >>= 16;
+
     if (v < 0) v = -v;
     if (v > peak) peak = v;
   }
 
   // Envelope
-  static int16_t lastPeak = 0;
+  static int32_t lastPeak = 0;
   peak = (peak * 3 + lastPeak) / 4;
   lastPeak = peak;
 
