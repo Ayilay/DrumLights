@@ -15,11 +15,11 @@
 #define I2S_DATA_PIN   GPIO10
 
 // ================== DETECTOR CONFIG =================
-#define SAMPLE_RATE        800
-#define BUFFER_SAMPLES     128
-#define PEAK_THRESHOLD     3000
+#define SAMPLE_RATE        4000
+#define BUFFER_SAMPLES     64       // Reduced from 128 for snappier response
+#define PEAK_THRESHOLD     1000
 #define HOLD_TIME_MS       200
-#define TRIGGER_PLOT_LEVEL 12000
+#define TRIGGER_PLOT_LEVEL PEAK_THRESHOLD
 
 #define I2S_PORT I2S_NUM_0
 
@@ -79,6 +79,11 @@ void loop() {
     if (v < 0) v = -v;
     if (v > peak) peak = v;
   }
+
+  // Envelope
+  static int16_t lastPeak = 0;
+  peak = (peak * 3 + lastPeak) / 4;
+  lastPeak = peak;
 
   unsigned long now = millis();
 
