@@ -2,6 +2,20 @@
 #include "driver/i2s_std.h"
 #include <FastLED.h>
 
+/**
+ * XIAO ESP32-C3 Pinout:
+ *
+ *                   /--|   |--\
+ *  GPIO2  A0  D0 ---+  |USB|  +--- 5V
+ *  GPIO3  A1  D1 ---+         +--- GND
+ *  GPIO4  A2  D2 ---+         +--- 3V3
+ *  GPIO5  A3  D3 ---+         +--- D10 MOSI GPIO10
+ *  GPIO6  SDA D4 ---+         +--- D9  MISO GPIO9
+ *  GPIO7  SCL D5 ---+         +--- D8  SCK  GPIO8
+ *  GPIO21 TX  D6 ---+         +--- D7  RX   GPIO20
+ *                   \---------/
+ */
+
 // ================== SENSITIVITY KNOBS ==================
 #define HOLD_TIME_MS       50
 
@@ -17,6 +31,19 @@
 #define TRIGGER_PLOT_LEVEL settings.thresh
 
 // ================= LED CONFIG =================
+
+/**
+ *
+ * LEDs per Meter = 60
+ *
+ *  Drum    Circumference   NUM_LEDS
+ *  Tom0    35"   0.889  m   54
+ *  Tom1    39"   0.9906 m   60
+ *  Tom2    45"   1.143  m   69
+ *  Snare   45"   1.143  m   69
+ *  Base    64"   1.6256 m   98
+ *
+ */
 
 #define NUM_LEDS      54
 #define LED_TYPE      WS2812B
