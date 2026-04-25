@@ -6,15 +6,15 @@
 /**
  * XIAO ESP32-C3 Pinout:
  *
- *                   /--|   |--\
- *  GPIO2  A0  D0 ---+  |USB|  +--- 5V
- *  GPIO3  A1  D1 ---+         +--- GND
- *  GPIO4  A2  D2 ---+         +--- 3V3
- *  GPIO5  A3  D3 ---+         +--- D10 MOSI GPIO10
- *  GPIO6  SDA D4 ---+         +--- D9  MISO GPIO9
- *  GPIO7  SCL D5 ---+         +--- D8  SCK  GPIO8
- *  GPIO21 TX  D6 ---+         +--- D7  RX   GPIO20
- *                   \---------/
+ *            /--|   |--\
+ *  GPIO2  ---+  |USB|  +--- 5V
+ *  GPIO3  ---+         +--- GND
+ *  GPIO4  ---+         +--- 3V3
+ *  GPIO5  ---+         +--- GPIO10
+ *  GPIO6  ---+         +--- GPIO9
+ *  GPIO7  ---+         +--- GPIO8
+ *  GPIO21 ---+         +--- GPIO20
+ *            \---------/
  */
 
 // ================== SENSITIVITY KNOBS ==================
@@ -52,8 +52,8 @@
 #define COLOR_ORDER   GRB
 
 #define MAX_BRIGHTNESS 128     // Max is 255. BEWARE, too high is dangerous
-#define DECAY_FACTOR   0.50f   // Smaller is faster
-#define LED_UPDATE_MS  5       // Smaller is smoother
+#define DECAY_FACTOR   0.95f   // Smaller is faster
+#define LED_UPDATE_MS  2       // Smaller is smoother
 
 //------------------------------------------------------------
 //  CLI Types and Structs
@@ -80,7 +80,6 @@ struct settable_vars {
 
 // ================= LED STATE =================
 
-float currentBrightness = 0.0f;
 CRGB leds[NUM_LEDS];
 
 // ================= MENU BUTTON =================
@@ -93,6 +92,17 @@ int32_t sampleBuffer[BUFFER_SAMPLES];
 i2s_chan_handle_t rx_chan;
 bool triggerActive = false;
 unsigned long lastTriggerTime = 0;
+
+// ================== BLINKER TASK =================
+typedef enum {
+  BLINK_RED   = 1,
+  BLINK_GREEN = 2,
+  BLINK_BLUE  = 3,
+  HIT_STIM    = 4,
+} BlinkMessage;
+
+TaskHandle_t BlinkTaskHandle = NULL;
+QueueHandle_t blinkerQueue   = NULL;
 
 // ================================================================================
 // Code Begin
@@ -174,6 +184,87 @@ void setup()
   // LED Init
   FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
   FastLED.setBrightness(MAX_BRIGHTNESS);
+
+  // ======================================================================
+  // Blinker Task + Queue Init
+  blinkerQueue = xQueueCreate( 5, sizeof(BlinkMessage) );
+
+  xTaskCreate(
+    BlinkTask,         // Task function
+    "Blinker",         // Task name
+    10000,             // Stack size (bytes)
+    NULL,              // Parameters
+    10,                // Priority
+    &BlinkTaskHandle   // Task handle
+  );
+}
+
+void BlinkTask_HandleStim() {
+
+  float currentBrightness = MAX_BRIGHTNESS;
+
+  // Max for each is 255
+  uint8_t red   = settings.red;
+  uint8_t green = settings.green;
+  uint8_t blue  = settings.blue;
+
+  fill_solid(leds, NUM_LEDS, CRGB( red, green, blue ));
+  FastLED.setBrightness((uint8_t)currentBrightness);
+  FastLED.show();
+
+  // Yes yes embedded float bad
+  // But the exponential decay works better...
+  while (currentBrightness > 1.0f) {
+
+    currentBrightness *= DECAY_FACTOR;
+    FastLED.setBrightness((uint8_t)currentBrightness);
+    FastLED.show();
+    delay( LED_UPDATE_MS );
+  }
+
+  currentBrightness = 0.0f;
+  FastLED.setBrightness((uint8_t)currentBrightness);
+  FastLED.show();
+}
+
+void Strip_BlinkAll( CRGB color, int duration )
+{
+  fill_solid(leds, NUM_LEDS, color);
+  FastLED.setBrightness(MAX_BRIGHTNESS);
+  FastLED.show();
+  delay(duration);
+  FastLED.setBrightness(0);
+  FastLED.show();
+}
+
+void BlinkTask(void *parameter) {
+  (void) parameter;
+
+  BlinkMessage command;
+  CRGB color;
+
+  for (;;) {
+    // Wait forever until command is placed into queue
+    xQueueReceive( blinkerQueue, (void*) &command, portMAX_DELAY );
+
+    switch( command ){
+      case BLINK_RED:
+        Strip_BlinkAll( CRGB( MAX_BRIGHTNESS, 0, 0 ), 200 );
+        break;
+      case BLINK_GREEN:
+        Strip_BlinkAll( CRGB( 0, MAX_BRIGHTNESS, 0 ), 200 );
+        break;
+      case BLINK_BLUE:
+        Strip_BlinkAll( CRGB( 0, 0, MAX_BRIGHTNESS ), 200 );
+        break;
+      case HIT_STIM:
+        BlinkTask_HandleStim();
+
+      default:
+        // Unrecognized; do nothing
+        break;
+    }
+  }
 }
 
 void loop()
@@ -222,9 +313,6 @@ void loop()
     triggerActive = false;
   }
 
-  // ================== BRIGHTNESS DECAY ==================
-  LED_Update_Loop( now );
-
   // ================== SERIAL PLOTTER OUTPUT ==================
   if( settings.stream )
   {
@@ -238,25 +326,31 @@ void loop()
   cli_poll();
 
   menuBtn.tick();
-  //Serial.print( "Button: " );
-  //Serial.println( digitalRead(BTN_PIN) ? "SET" : "unset" );
 }
 
 // Handler function for a single click:
 static void handleClick() {
   Serial.println("Clicked!");
+  BlinkMessage command = BLINK_BLUE;
+  xQueueSend( blinkerQueue, (void*) &command, 0 );
 }
 
 static void handleDoubleClick() {
+  BlinkMessage command = BLINK_RED;
   Serial.println("Double Pressed!");
+  xQueueSend( blinkerQueue, (void*) &command, 0 );
 };
 
 static void handleLongStart() {
+  BlinkMessage command = BLINK_GREEN;
   Serial.println("HOLDING ...");
+  xQueueSend( blinkerQueue, (void*) &command, 0 );
 };
 
 static void handleLongStop() {
+  BlinkMessage command = BLINK_GREEN;
   Serial.println("Released!");
+  xQueueSend( blinkerQueue, (void*) &command, 0 );
 };
 
 // ================================================================================
@@ -268,38 +362,8 @@ static void handleLongStop() {
  */
 void LED_Update_Stimulus()
 {
-  currentBrightness = MAX_BRIGHTNESS;
-
-  // Max for each is 255
-  uint8_t red   = settings.red;
-  uint8_t green = settings.green;
-  uint8_t blue  = settings.blue;
-
-  // Try other colors from here:
-  // https://fastled.io/docs/d7/d82/struct_c_r_g_b_aeb40a08b7cb90c1e21bd408261558b99.html#aeb40a08b7cb90c1e21bd408261558b99
-  fill_solid(leds, NUM_LEDS, CRGB( red, green, blue ));
-}
-
-/*
- *  This is called once per loop
- */
-void LED_Update_Loop( unsigned long now )
-{
-  static unsigned long lastUpdateMs = 0;
-
-  // Exponential brightness decay
-  if (now - lastUpdateMs >= LED_UPDATE_MS) {
-    lastUpdateMs = now;
-
-    if (currentBrightness > 1.0f) {
-      currentBrightness *= DECAY_FACTOR;
-    } else {
-      currentBrightness = 0.0f;
-    }
-
-    FastLED.setBrightness((uint8_t)currentBrightness);
-    FastLED.show();
-  }
+  BlinkMessage command = HIT_STIM;
+  xQueueSend( blinkerQueue, (void*) &command, 0 );
 }
 
 //------------------------------------------------------------
