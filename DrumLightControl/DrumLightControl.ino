@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include "driver/i2s_std.h"
 #include <FastLED.h>
+#include <OneButton.h>
 
 /**
  * XIAO ESP32-C3 Pinout:
@@ -24,6 +25,7 @@
 #define I2S_WS_PIN     GPIO_NUM_4
 #define I2S_DATA_PIN   GPIO_NUM_10
 #define LED_PIN        GPIO_NUM_8
+#define BTN_PIN        GPIO_NUM_5
 
 // ================== I2S DETECTOR CONFIG =================
 #define SAMPLE_RATE        4000
@@ -81,6 +83,10 @@ struct settable_vars {
 float currentBrightness = 0.0f;
 CRGB leds[NUM_LEDS];
 
+// ================= MENU BUTTON =================
+
+OneButton menuBtn;
+
 // ================== I2S STATE  =================
 
 int32_t sampleBuffer[BUFFER_SAMPLES];
@@ -112,9 +118,21 @@ void init_default_settings()
 void setup()
 {
   Serial.begin(115200);
-  delay(1000);
 
   init_default_settings();
+
+  // Menu Button Init
+  menuBtn.setup(
+      BTN_PIN,      // Input pin for the button
+      INPUT_PULLUP, // INPUT and enable the internal pull-up resistor
+      true          // Button is active LOW
+      );
+
+  menuBtn.attachClick(handleClick);
+  menuBtn.attachDoubleClick(handleDoubleClick);
+  menuBtn.attachLongPressStart(handleLongStart);
+  menuBtn.attachLongPressStop(handleLongStop);
+  menuBtn.setClickMs( 150 );
 
   // ======================================================================
   // I2S Init
@@ -218,7 +236,28 @@ void loop()
   }
 
   cli_poll();
+
+  menuBtn.tick();
+  //Serial.print( "Button: " );
+  //Serial.println( digitalRead(BTN_PIN) ? "SET" : "unset" );
 }
+
+// Handler function for a single click:
+static void handleClick() {
+  Serial.println("Clicked!");
+}
+
+static void handleDoubleClick() {
+  Serial.println("Double Pressed!");
+};
+
+static void handleLongStart() {
+  Serial.println("HOLDING ...");
+};
+
+static void handleLongStop() {
+  Serial.println("Released!");
+};
 
 // ================================================================================
 // LED Update Routines
