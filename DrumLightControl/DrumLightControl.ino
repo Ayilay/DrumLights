@@ -21,11 +21,11 @@
 #define HOLD_TIME_MS       50
 
 // ================== PIN CONFIG ==================
-#define I2S_BCLK_PIN   GPIO_NUM_3
-#define I2S_WS_PIN     GPIO_NUM_4
+#define I2S_BCLK_PIN   GPIO_NUM_5
+#define I2S_WS_PIN     GPIO_NUM_6
 #define I2S_DATA_PIN   GPIO_NUM_10
 #define LED_PIN        GPIO_NUM_8
-#define BTN_PIN        GPIO_NUM_5
+#define BTN_PIN        GPIO_NUM_7
 
 // ================== I2S DETECTOR CONFIG =================
 #define SAMPLE_RATE        4000
@@ -479,7 +479,7 @@ void cmd_stream(const char *arg, uintptr_t cookie) {
     Serial.println( "Enable data stream" );
     settings.stream = true;
   }
-  else if( 0 == strcmp( arg, "on" ) )
+  else if( 0 == strcmp( arg, "off" ) )
   {
     Serial.println( "Disable data stream" );
     settings.stream = false;
@@ -555,5 +555,24 @@ void cmd_color(const char *arg, uintptr_t cookie) {
 }
 
 void cmd_thresh(const char *arg, uintptr_t cookie) {
-  Serial.println("Not implemented!");
+  // No arg: print the value and exit
+  if( ! arg ){
+    Serial.print( "Threshold: " );
+    Serial.println( settings.thresh );
+
+    return;
+  }
+
+  // We accept 0x hes format AND decimal format
+  uint32_t val = strtol(arg, NULL, 0);
+  if( val > 0xffff ){
+    Serial.print( "invalid num " );
+    Serial.print( val );
+    Serial.println( ". Must be wthin 0-65535" );
+    return;
+  }
+
+  settings.thresh = val;
+  Serial.print( "Set new thresh to " );
+  Serial.println( val);
 }
