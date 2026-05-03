@@ -51,7 +51,7 @@
 #define LED_TYPE      WS2812B
 #define COLOR_ORDER   GRB
 
-#define MAX_BRIGHTNESS 128     // Max is 255. BEWARE, too high is dangerous
+#define MAX_BRIGHTNESS 255     // Max is 255. BEWARE, too high is dangerous
 #define DECAY_FACTOR   0.95f   // Smaller is faster
 #define LED_UPDATE_MS  2       // Smaller is smoother
 
@@ -71,6 +71,7 @@ struct cli_command_t {
 struct settable_vars {
   bool     stream;
   uint32_t thresh;
+  uint32_t brightness;
 
   uint32_t red;
   uint32_t green;
@@ -121,6 +122,7 @@ void init_default_settings()
   settings.green = 0x69;
   settings.blue  = 0xb4;
 
+  settings.brightness = 128;
   settings.thresh = 1000;
   settings.stream = false;
 }
@@ -183,7 +185,7 @@ void setup()
   // ======================================================================
   // LED Init
   FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
-  FastLED.setBrightness(MAX_BRIGHTNESS);
+  FastLED.setBrightness(settings.brightness);
 
   // ======================================================================
   // Blinker Task + Queue Init
@@ -201,7 +203,7 @@ void setup()
 
 void BlinkTask_HandleStim() {
 
-  float currentBrightness = MAX_BRIGHTNESS;
+  float currentBrightness = settings.brightness;
 
   // Max for each is 255
   uint8_t red   = settings.red;
@@ -230,7 +232,7 @@ void BlinkTask_HandleStim() {
 void Strip_BlinkAll( CRGB color, int duration )
 {
   fill_solid(leds, NUM_LEDS, color);
-  FastLED.setBrightness(MAX_BRIGHTNESS);
+  FastLED.setBrightness(settings.brightness);
   FastLED.show();
   delay(duration);
   FastLED.setBrightness(0);
@@ -249,13 +251,13 @@ void BlinkTask(void *parameter) {
 
     switch( command ){
       case BLINK_RED:
-        Strip_BlinkAll( CRGB( MAX_BRIGHTNESS, 0, 0 ), 200 );
+        Strip_BlinkAll( CRGB( settings.brightness, 0, 0 ), 200 );
         break;
       case BLINK_GREEN:
-        Strip_BlinkAll( CRGB( 0, MAX_BRIGHTNESS, 0 ), 200 );
+        Strip_BlinkAll( CRGB( 0, settings.brightness, 0 ), 200 );
         break;
       case BLINK_BLUE:
-        Strip_BlinkAll( CRGB( 0, 0, MAX_BRIGHTNESS ), 200 );
+        Strip_BlinkAll( CRGB( 0, 0, settings.brightness ), 200 );
         break;
       case HIT_STIM:
         BlinkTask_HandleStim();
@@ -376,6 +378,7 @@ void cmd_stim(const char *arg, uintptr_t cookie);
 void cmd_color(const char *arg, uintptr_t cookie);
 void cmd_thresh(const char *arg, uintptr_t cookie);
 void cmd_stream(const char *arg, uintptr_t cookie);
+void cmd_bright(const char *arg, uintptr_t cookie);
 
 enum color {
   COLOR_RED = 0,
@@ -394,6 +397,7 @@ cli_command_t commands[] = {
   { "stim","   Stimulate the LEDs", cmd_stim,  NULL },
   { "stream"," <on|off> Enable/Disable data stream", cmd_stream,  NULL },
 
+  { "bright"," [val] Get/Set the LED brightness", cmd_bright, NULL },
   { "thresh"," [val] Get/Set the microphone threshold", cmd_thresh, NULL },
   { "red","    [val] Get/Set the red value",   cmd_color, COLOR_RED },
   { "grn","    [val] Get/Set the green value", cmd_color, COLOR_GRN },
@@ -521,7 +525,7 @@ void cmd_color(const char *arg, uintptr_t cookie) {
     return;
   }
 
-  // We accept 0x hes format AND decimal format
+  // We accept 0x hex format AND decimal format
   uint32_t val = strtol(arg, NULL, 0);
   if( val > 255 ){
     Serial.print( "invalid num " );
@@ -554,21 +558,44 @@ void cmd_color(const char *arg, uintptr_t cookie) {
   Serial.println( val);
 }
 
+void cmd_bright(const char *arg, uintptr_t cookie) {
+  // No arg: print the value and exit
+  if( ! arg ){
+    Serial.print( "Brightness (0-255): " );
+    Serial.println( settings.brightness );
+
+    return;
+  }
+
+  // We accept 0x hex format AND decimal format
+  uint32_t val = strtol(arg, NULL, 0);
+  if( val > 255 ){
+    Serial.print( "invalid num " );
+    Serial.print( val );
+    Serial.println( ". Must be wthin 0-255" );
+    return;
+  }
+
+  settings.brightness = val;
+  Serial.print( "Set new brightness to " );
+  Serial.println( val);
+}
+
 void cmd_thresh(const char *arg, uintptr_t cookie) {
   // No arg: print the value and exit
   if( ! arg ){
-    Serial.print( "Threshold: " );
+    Serial.print( "Threshold (0-32767): " );
     Serial.println( settings.thresh );
 
     return;
   }
 
-  // We accept 0x hes format AND decimal format
+  // We accept 0x hex format AND decimal format
   uint32_t val = strtol(arg, NULL, 0);
-  if( val > 0xffff ){
+  if( val > 0x7fff ){
     Serial.print( "invalid num " );
     Serial.print( val );
-    Serial.println( ". Must be wthin 0-65535" );
+    Serial.println( ". Must be wthin 0-32767" );
     return;
   }
 
