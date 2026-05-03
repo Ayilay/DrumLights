@@ -51,8 +51,6 @@
 #define LED_TYPE      WS2812B
 #define COLOR_ORDER   GRB
 
-#define MAX_BRIGHTNESS 255     // Max is 255. BEWARE, too high is dangerous
-#define DECAY_FACTOR   0.95f   // Smaller is faster
 #define LED_UPDATE_MS  2       // Smaller is smoother
 
 //------------------------------------------------------------
@@ -72,6 +70,7 @@ struct settable_vars {
   bool     stream;
   uint32_t thresh;
   uint32_t brightness;
+  float    decay;
 
   uint32_t red;
   uint32_t green;
@@ -122,6 +121,7 @@ void init_default_settings()
   settings.green = 0x69;
   settings.blue  = 0xb4;
 
+  settings.decay = 0.95;      // Smaller is faster
   settings.brightness = 128;
   settings.thresh = 1000;
   settings.stream = false;
@@ -218,7 +218,7 @@ void BlinkTask_HandleStim() {
   // But the exponential decay works better...
   while (currentBrightness > 1.0f) {
 
-    currentBrightness *= DECAY_FACTOR;
+    currentBrightness *= settings.decay;
     FastLED.setBrightness((uint8_t)currentBrightness);
     FastLED.show();
     delay( LED_UPDATE_MS );
@@ -397,8 +397,9 @@ cli_command_t commands[] = {
   { "stim","   Stimulate the LEDs", cmd_stim,  NULL },
   { "stream"," <on|off> Enable/Disable data stream", cmd_stream,  NULL },
 
-  { "bright"," [val] Get/Set the LED brightness", cmd_bright, NULL },
   { "thresh"," [val] Get/Set the microphone threshold", cmd_thresh, NULL },
+  { "bright"," [val] Get/Set the LED brightness", cmd_bright, NULL },
+  { "decay","  [val] Get/Set the LED decay speed", cmd_decay, NULL },
   { "red","    [val] Get/Set the red value",   cmd_color, COLOR_RED },
   { "grn","    [val] Get/Set the green value", cmd_color, COLOR_GRN },
   { "blu","    [val] Get/Set the blue value",  cmd_color, COLOR_BLU },
@@ -555,6 +556,33 @@ void cmd_color(const char *arg, uintptr_t cookie) {
       break;
   }
   Serial.print( "to " );
+  Serial.println( val);
+}
+
+void cmd_decay(const char *arg, uintptr_t cookie) {
+  // No arg: print the value and exit
+  if( ! arg ){
+    Serial.print( "Decay (0.0-1.0): " );
+    Serial.println( settings.decay );
+
+    return;
+  }
+
+  float val = strtof(arg, NULL);
+  if( val > 1.0 ){
+    Serial.print( "invalid num " );
+    Serial.print( val );
+    Serial.println( ". Must be wthin 0.0-1.0" );
+    return;
+  } else {
+    Serial.print( "parsed " );
+    Serial.print( arg );
+    Serial.print( " as " );
+    Serial.println( val );
+  }
+
+  settings.decay = val;
+  Serial.print( "Set new decay to " );
   Serial.println( val);
 }
 
