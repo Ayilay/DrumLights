@@ -374,6 +374,7 @@ void LED_Update_Stimulus()
 
 // Command Handler Prototypes
 void cmd_help(const char *arg, uintptr_t cookie);
+void cmd_dump(const char *arg, uintptr_t cookie);
 void cmd_stim(const char *arg, uintptr_t cookie);
 void cmd_color(const char *arg, uintptr_t cookie);
 void cmd_thresh(const char *arg, uintptr_t cookie);
@@ -391,7 +392,7 @@ enum color {
 
 cli_command_t commands[] = {
   { "help","          Show this help text",    cmd_help, NULL },
-
+  { "dump","          Show all current settings", cmd_dump, NULL },
 
   CLI_BLANK,
   { "stim","   Stimulate the LEDs", cmd_stim,  NULL },
@@ -464,6 +465,35 @@ void cmd_help(const char *arg, uintptr_t cookie) {
     Serial.print(commands[i].name);
     Serial.println(commands[i].help);
   }
+
+  Serial.println();
+}
+
+void cmd_dump(const char *arg, uintptr_t cookie) {
+  struct settable_vars *sett = &settings;
+
+  Serial.println("Current Settings:");
+
+  Serial.print("  Threshold: ");
+  Serial.print(sett->thresh);
+  Serial.println();
+
+  Serial.print("  Brightness: ");
+  Serial.print(sett->brightness);
+  Serial.println();
+
+  Serial.print("  Decay: ");
+  Serial.print(sett->decay);
+  Serial.println();
+
+  Serial.print("LED Color");
+  Serial.println();
+  Serial.print("  Red: ");
+  Serial.println(sett->red);
+  Serial.print("  Green: ");
+  Serial.println(sett->green);
+  Serial.print("  Blue: ");
+  Serial.println(sett->blue);
 
   Serial.println();
 }
