@@ -47,7 +47,7 @@
  *
  */
 
-#define NUM_LEDS      54
+#define NUM_LEDS      100
 #define LED_TYPE      WS2812B
 #define COLOR_ORDER   GRB
 
@@ -187,7 +187,7 @@ void setup()
 
   // ======================================================================
   // Blinker Task + Queue Init
-  blinkerQueue = xQueueCreate( 5, sizeof(BlinkMessage) );
+  blinkerQueue = xQueueCreate( 1, sizeof(BlinkMessage) );
 
   xTaskCreate(
     BlinkTask,         // Task function

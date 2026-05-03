@@ -14,7 +14,7 @@ OPTIONS += -j $(shell nproc)
 build:
 	arduino-cli compile --fqbn $(FQBN) $(BUILD_PATH) $(OPTIONS) $(SKETCH)/
 
-upload: build
+upload:
 	arduino-cli upload --fqbn $(FQBN) $(BUILD_PATH) --port $(SERPORT) $(SKETCH)/
 
 clean:
