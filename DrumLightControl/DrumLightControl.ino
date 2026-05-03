@@ -1,5 +1,8 @@
 #include <Arduino.h>
+
 #include "driver/i2s_std.h"
+
+#include <Preferences.h>
 #include <FastLED.h>
 #include <OneButton.h>
 
@@ -77,6 +80,17 @@ struct settable_vars {
   uint32_t blue;
 } settings;
 
+// Helpers to store settings persistently
+Preferences prefs;
+const char *PREF_NS = "cfg";
+
+const char *K_THRESH   = "thresh";
+const char *K_BRIGHT   = "brightness";
+const char *K_DECAY    = "decay";
+const char *K_RED      = "red";
+const char *K_GREEN    = "green";
+const char *K_BLUE     = "blue";
+
 
 // ================= LED STATE =================
 
@@ -105,33 +119,89 @@ TaskHandle_t BlinkTaskHandle = NULL;
 QueueHandle_t blinkerQueue   = NULL;
 
 // ================================================================================
-// Code Begin
+// Settings Code
 // ================================================================================
 
-void init_default_settings()
+void initDefaultSettings(struct settable_vars &sett)
 {
-  memset( &settings, 0, sizeof(settings) );
+  memset( &sett, 0, sizeof(sett) );
 
   // Hot Pink:
   //    0xff = 255
   //    0x69 = 105
   //    0xb4 = 180
 
-  settings.red   = 0xff;
-  settings.green = 0x69;
-  settings.blue  = 0xb4;
+  sett.red   = 0xff;
+  sett.green = 0x69;
+  sett.blue  = 0xb4;
 
-  settings.decay = 0.95;      // Smaller is faster
-  settings.brightness = 128;
-  settings.thresh = 1000;
-  settings.stream = false;
+  sett.decay = 0.95;      // Smaller is faster
+  sett.brightness = 128;
+  sett.thresh = 1000;
+  sett.stream = false;
 }
+
+
+bool saveSettings(const settable_vars &s) {
+  prefs.begin(PREF_NS, false); // read-write
+  prefs.putUInt(K_THRESH,   s.thresh);
+  prefs.putUInt(K_BRIGHT,   s.brightness);
+  prefs.putFloat(K_DECAY,   s.decay);
+  prefs.putUInt(K_RED,      s.red);
+  prefs.putUInt(K_GREEN,    s.green);
+  prefs.putUInt(K_BLUE,     s.blue);
+  prefs.end();
+  return true;
+}
+
+bool loadSettings(settable_vars &out) {
+  prefs.begin(PREF_NS, true); // read-only
+
+#if defined(PREFERENCES_HAS_CONTAINS)
+  if (!prefs.contains(K_THRESH) || !prefs.contains(K_BRIGHT) || !prefs.contains(K_DECAY) ||
+      !prefs.contains(K_RED) || !prefs.contains(K_GREEN) || !prefs.contains(K_BLUE)) {
+    prefs.end();
+    return false;
+  }
+#endif
+
+  out.thresh    = prefs.getUInt(K_THRESH,   UINT32_MAX);
+  out.brightness= prefs.getUInt(K_BRIGHT,   UINT32_MAX);
+  out.decay     = prefs.getFloat(K_DECAY,   NAN);
+  out.red       = prefs.getUInt(K_RED,      UINT32_MAX);
+  out.green     = prefs.getUInt(K_GREEN,    UINT32_MAX);
+  out.blue      = prefs.getUInt(K_BLUE,     UINT32_MAX);
+
+  prefs.end();
+
+  if (out.thresh == UINT32_MAX || out.brightness == UINT32_MAX ||
+      isnan(out.decay) ||
+      out.red == UINT32_MAX || out.green == UINT32_MAX || out.blue == UINT32_MAX) {
+    return false;
+  }
+  return true;
+}
+
+void init_settings()
+{
+  if (!loadSettings(settings)) {
+    Serial.println("No saved settings; loading defaults and saving");
+    initDefaultSettings(settings);
+    saveSettings(settings);
+  } else {
+    Serial.println("Loaded settings from persistent memory");
+  }
+}
+
+// ================================================================================
+// Code Begin
+// ================================================================================
 
 void setup()
 {
   Serial.begin(115200);
 
-  init_default_settings();
+  init_settings();
 
   // Menu Button Init
   menuBtn.setup(
@@ -375,6 +445,7 @@ void LED_Update_Stimulus()
 // Command Handler Prototypes
 void cmd_help(const char *arg, uintptr_t cookie);
 void cmd_dump(const char *arg, uintptr_t cookie);
+void cmd_save(const char *arg, uintptr_t cookie);
 void cmd_stim(const char *arg, uintptr_t cookie);
 void cmd_color(const char *arg, uintptr_t cookie);
 void cmd_thresh(const char *arg, uintptr_t cookie);
@@ -393,6 +464,7 @@ enum color {
 cli_command_t commands[] = {
   { "help","          Show this help text",    cmd_help, NULL },
   { "dump","          Show all current settings", cmd_dump, NULL },
+  { "save","          Save all settings to memory", cmd_save, NULL },
 
   CLI_BLANK,
   { "stim","   Stimulate the LEDs", cmd_stim,  NULL },
@@ -496,6 +568,11 @@ void cmd_dump(const char *arg, uintptr_t cookie) {
   Serial.println(sett->blue);
 
   Serial.println();
+}
+
+void cmd_save(const char *arg, uintptr_t cookie) {
+  saveSettings( settings );
+  Serial.println( "Saved settings to memory" );
 }
 
 void cmd_stim(const char *arg, uintptr_t cookie) {
