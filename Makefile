@@ -11,6 +11,8 @@ OPTIONS += -j $(shell nproc)
 
 .PHONY: build upload clean
 
+all: build upload
+
 build:
 	arduino-cli compile --fqbn $(FQBN) $(BUILD_PATH) $(OPTIONS) $(SKETCH)/
 
