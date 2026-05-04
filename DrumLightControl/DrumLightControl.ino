@@ -20,9 +20,6 @@
  *            \---------/
  */
 
-// ================== SENSITIVITY KNOBS ==================
-#define HOLD_TIME_MS       50
-
 // ================== PIN CONFIG ==================
 #define I2S_BCLK_PIN   GPIO_NUM_5
 #define I2S_WS_PIN     GPIO_NUM_6
@@ -72,6 +69,7 @@ struct cli_command_t {
 struct settable_vars {
   bool     stream;
   uint32_t thresh;
+  uint32_t holdoff;
   uint32_t brightness;
   float    decay;
 
@@ -85,6 +83,7 @@ Preferences prefs;
 const char *PREF_NS = "cfg";
 
 const char *K_THRESH   = "thresh";
+const char *K_HOLD     = "holdoff";
 const char *K_BRIGHT   = "brightness";
 const char *K_DECAY    = "decay";
 const char *K_RED      = "red";
@@ -145,6 +144,7 @@ void initDefaultSettings(struct settable_vars &sett)
 bool saveSettings(const settable_vars &s) {
   prefs.begin(PREF_NS, false); // read-write
   prefs.putUInt(K_THRESH,   s.thresh);
+  prefs.putUInt(K_HOLD,     s.holdoff);
   prefs.putUInt(K_BRIGHT,   s.brightness);
   prefs.putFloat(K_DECAY,   s.decay);
   prefs.putUInt(K_RED,      s.red);
@@ -166,6 +166,7 @@ bool loadSettings(settable_vars &out) {
 #endif
 
   out.thresh    = prefs.getUInt(K_THRESH,   UINT32_MAX);
+  out.holdoff   = prefs.getUInt(K_HOLD,     UINT32_MAX);
   out.brightness= prefs.getUInt(K_BRIGHT,   UINT32_MAX);
   out.decay     = prefs.getFloat(K_DECAY,   NAN);
   out.red       = prefs.getUInt(K_RED,      UINT32_MAX);
@@ -374,7 +375,7 @@ void loop()
 
   // Threshold logic with holdoff
   if (peak > settings.thresh) {
-    if (!triggerActive && (now - lastTriggerTime > HOLD_TIME_MS)) {
+    if (!triggerActive && (now - lastTriggerTime > settings.holdoff)) {
       triggerActive = true;
       lastTriggerTime = now;
 
@@ -449,6 +450,7 @@ void cmd_save(const char *arg, uintptr_t cookie);
 void cmd_stim(const char *arg, uintptr_t cookie);
 void cmd_color(const char *arg, uintptr_t cookie);
 void cmd_thresh(const char *arg, uintptr_t cookie);
+void cmd_holdoff(const char *arg, uintptr_t cookie);
 void cmd_stream(const char *arg, uintptr_t cookie);
 void cmd_bright(const char *arg, uintptr_t cookie);
 
@@ -471,6 +473,7 @@ cli_command_t commands[] = {
   { "stream"," <on|off> Enable/Disable data stream", cmd_stream,  NULL },
 
   { "thresh"," [val] Get/Set the microphone threshold", cmd_thresh, NULL },
+  { "holdoff","[val] Get/Set the microphone threshold", cmd_holdoff, NULL },
   { "bright"," [val] Get/Set the LED brightness", cmd_bright, NULL },
   { "decay","  [val] Get/Set the LED decay speed", cmd_decay, NULL },
   { "red","    [val] Get/Set the red value",   cmd_color, COLOR_RED },
@@ -548,6 +551,10 @@ void cmd_dump(const char *arg, uintptr_t cookie) {
 
   Serial.print("  Threshold: ");
   Serial.print(sett->thresh);
+  Serial.println();
+
+  Serial.print("  Holdoff (ms): ");
+  Serial.print(sett->holdoff);
   Serial.println();
 
   Serial.print("  Brightness: ");
@@ -736,5 +743,28 @@ void cmd_thresh(const char *arg, uintptr_t cookie) {
 
   settings.thresh = val;
   Serial.print( "Set new thresh to " );
+  Serial.println( val);
+}
+
+void cmd_holdoff(const char *arg, uintptr_t cookie) {
+  // No arg: print the value and exit
+  if( ! arg ){
+    Serial.print( "Holdoff (milliseconds) (0-32767): " );
+    Serial.println( settings.holdoff );
+
+    return;
+  }
+
+  // We accept 0x hex format AND decimal format
+  uint32_t val = strtol(arg, NULL, 0);
+  if( val > 0x7fff ){
+    Serial.print( "invalid num " );
+    Serial.print( val );
+    Serial.println( ". Must be wthin 0-32767" );
+    return;
+  }
+
+  settings.holdoff = val;
+  Serial.print( "Set new holdoff to " );
   Serial.println( val);
 }
