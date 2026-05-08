@@ -76,6 +76,8 @@ struct settable_vars {
   uint32_t red;
   uint32_t green;
   uint32_t blue;
+
+  uint32_t sleepPeriodSecs;
 } settings;
 
 // Helpers to store settings persistently
@@ -89,6 +91,7 @@ const char *K_DECAY    = "decay";
 const char *K_RED      = "red";
 const char *K_GREEN    = "green";
 const char *K_BLUE     = "blue";
+const char *K_SLEEP    = "sleep";
 
 
 // ================= LED STATE =================
@@ -117,6 +120,11 @@ typedef enum {
 TaskHandle_t BlinkTaskHandle = NULL;
 QueueHandle_t blinkerQueue   = NULL;
 
+// ================== SLEEP TIMER  =================
+TimerHandle_t sleepTimerHandle = NULL;
+void sleepTimerExpiredCallback( TimerHandle_t xTimer );
+
+
 // ================================================================================
 // Settings Code
 // ================================================================================
@@ -135,9 +143,12 @@ void initDefaultSettings(struct settable_vars &sett)
   sett.blue  = 0xb4;
 
   sett.decay = 0.95;      // Smaller is faster
+  sett.holdoff = 50;
   sett.brightness = 128;
   sett.thresh = 1000;
   sett.stream = false;
+
+  sett.sleepPeriodSecs = (60 * 5);
 }
 
 
@@ -145,6 +156,7 @@ bool saveSettings(const settable_vars &s) {
   prefs.begin(PREF_NS, false); // read-write
   prefs.putUInt(K_THRESH,   s.thresh);
   prefs.putUInt(K_HOLD,     s.holdoff);
+  prefs.putUInt(K_SLEEP,    s.sleepPeriodSecs);
   prefs.putUInt(K_BRIGHT,   s.brightness);
   prefs.putFloat(K_DECAY,   s.decay);
   prefs.putUInt(K_RED,      s.red);
@@ -159,7 +171,8 @@ bool loadSettings(settable_vars &out) {
 
 #if defined(PREFERENCES_HAS_CONTAINS)
   if (!prefs.contains(K_THRESH) || !prefs.contains(K_BRIGHT) || !prefs.contains(K_DECAY) ||
-      !prefs.contains(K_RED) || !prefs.contains(K_GREEN) || !prefs.contains(K_BLUE)) {
+      !prefs.contains(K_RED) || !prefs.contains(K_GREEN) || !prefs.contains(K_BLUE) ||
+      !prefs.contains(K_HOLD) || !prefs.contains(K_SLEEP)) {
     prefs.end();
     return false;
   }
@@ -172,12 +185,14 @@ bool loadSettings(settable_vars &out) {
   out.red       = prefs.getUInt(K_RED,      UINT32_MAX);
   out.green     = prefs.getUInt(K_GREEN,    UINT32_MAX);
   out.blue      = prefs.getUInt(K_BLUE,     UINT32_MAX);
+  out.sleepPeriodSecs = prefs.getUInt(K_SLEEP,    UINT32_MAX);
 
   prefs.end();
 
   if (out.thresh == UINT32_MAX || out.brightness == UINT32_MAX ||
       isnan(out.decay) ||
-      out.red == UINT32_MAX || out.green == UINT32_MAX || out.blue == UINT32_MAX) {
+      out.red == UINT32_MAX || out.green == UINT32_MAX || out.blue == UINT32_MAX ||
+      out.sleepPeriodSecs == UINT32_MAX || out.holdoff == UINT32_MAX ) {
     return false;
   }
   return true;
@@ -270,6 +285,15 @@ void setup()
     10,                // Priority
     &BlinkTaskHandle   // Task handle
   );
+
+  sleepTimerHandle = xTimerCreate (
+      "SleepTimer",
+      pdMS_TO_TICKS( settings.sleepPeriodSecs * 1000 ),
+      pdFALSE,
+      NULL,
+      sleepTimerExpiredCallback
+      );
+  xTimerStart( sleepTimerHandle, portMAX_DELAY );
 }
 
 void BlinkTask_HandleStim() {
@@ -310,6 +334,14 @@ void Strip_BlinkAll( CRGB color, int duration )
   FastLED.show();
 }
 
+void Strip_BlinkAllRepeat( CRGB color, int duration, unsigned int repeat )
+{
+  for( int i = 0; i < repeat; i++ ){
+    Strip_BlinkAll( color, duration );
+    delay( duration );
+  }
+}
+
 void BlinkTask(void *parameter) {
   (void) parameter;
 
@@ -319,6 +351,7 @@ void BlinkTask(void *parameter) {
   for (;;) {
     // Wait forever until command is placed into queue
     xQueueReceive( blinkerQueue, (void*) &command, portMAX_DELAY );
+    xTimerReset( sleepTimerHandle, portMAX_DELAY );
 
     switch( command ){
       case BLINK_RED:
@@ -427,6 +460,19 @@ static void handleLongStop() {
 };
 
 // ================================================================================
+// Sleep Low Power Mode
+// ================================================================================
+
+void sleepTimerExpiredCallback( TimerHandle_t xTimer )
+{
+  // Indicate that sleep is about to begin, then enter deep sleep.
+  // Wake up ONLY by full power cycle
+  Serial.println( "No activity, going to sleep..." );
+  Strip_BlinkAllRepeat( CRGB( settings.brightness, 0, 0 ), 500, 5 );
+  esp_deep_sleep_start();
+}
+
+// ================================================================================
 // LED Update Routines
 // ================================================================================
 
@@ -453,6 +499,7 @@ void cmd_thresh(const char *arg, uintptr_t cookie);
 void cmd_holdoff(const char *arg, uintptr_t cookie);
 void cmd_stream(const char *arg, uintptr_t cookie);
 void cmd_bright(const char *arg, uintptr_t cookie);
+void cmd_sleep(const char *arg, uintptr_t cookie);
 
 enum color {
   COLOR_RED = 0,
@@ -473,9 +520,12 @@ cli_command_t commands[] = {
   { "stream"," <on|off> Enable/Disable data stream", cmd_stream,  NULL },
 
   { "thresh"," [val] Get/Set the microphone threshold", cmd_thresh, NULL },
-  { "holdoff","[val] Get/Set the microphone threshold", cmd_holdoff, NULL },
+  { "holdoff","[val] Get/Set the holdoff between consecutive hits", cmd_holdoff, NULL },
   { "bright"," [val] Get/Set the LED brightness", cmd_bright, NULL },
   { "decay","  [val] Get/Set the LED decay speed", cmd_decay, NULL },
+  { "sleep","  [val] Get/Set the sleep timeout", cmd_sleep, NULL },
+
+  CLI_BLANK,
   { "red","    [val] Get/Set the red value",   cmd_color, COLOR_RED },
   { "grn","    [val] Get/Set the green value", cmd_color, COLOR_GRN },
   { "blu","    [val] Get/Set the blue value",  cmd_color, COLOR_BLU },
@@ -515,11 +565,14 @@ void cli_process_line(char *line) {
 
 void cli_poll() {
   while (Serial.available()) {
+
     char c = Serial.read();
     if (c == '\r')
       continue;
 
     if (c == '\n') {
+      xTimerReset( sleepTimerHandle, portMAX_DELAY );
+
       cli_buf[cli_cursor] = '\0';
       cli_process_line(cli_buf);
       cli_cursor = 0;
@@ -563,6 +616,10 @@ void cmd_dump(const char *arg, uintptr_t cookie) {
 
   Serial.print("  Decay: ");
   Serial.print(sett->decay);
+  Serial.println();
+
+  Serial.print("  Sleep Delay (s): ");
+  Serial.print(sett->sleepPeriodSecs);
   Serial.println();
 
   Serial.print("LED Color");
@@ -698,6 +755,34 @@ void cmd_decay(const char *arg, uintptr_t cookie) {
   settings.decay = val;
   Serial.print( "Set new decay to " );
   Serial.println( val);
+}
+
+void cmd_sleep(const char *arg, uintptr_t cookie) {
+  // No arg: print the value and exit
+  if( ! arg ){
+    Serial.print( "Sleep Timeout (s): " );
+    Serial.println( settings.sleepPeriodSecs );
+
+    return;
+  }
+
+  uint32_t val = strtoul(arg, NULL, 0);
+  if( val > (3600 * 24) || val == 0 ){
+    Serial.print( "invalid num " );
+    Serial.print( val );
+    Serial.println( ". Must be wthin 1-86400 (one day)" );
+    return;
+  }
+
+  settings.sleepPeriodSecs = val;
+  Serial.print( "Set new sleep timeout to " );
+  Serial.println( val );
+
+  xTimerChangePeriod(
+     sleepTimerHandle,
+     pdMS_TO_TICKS( val * 1000 ),
+     portMAX_DELAY
+  );
 }
 
 void cmd_bright(const char *arg, uintptr_t cookie) {

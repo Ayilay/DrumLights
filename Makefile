@@ -1,5 +1,5 @@
 SKETCH   := DrumLightControl
-FQBN 	   := esp32:esp32:XIAO_ESP32C3:CPUFreq=160,FlashMode=qio,FlashFreq=80,FlashSize=4M,PartitionScheme=default,DebugLevel=none
+FQBN     := esp32:esp32:XIAO_ESP32C3:CPUFreq=160,FlashMode=qio,FlashFreq=80,FlashSize=4M,PartitionScheme=default,DebugLevel=none
 SERPORT  := /dev/ttyACM0
 
 # Provide this to build in custom path, preferably on ramfs
