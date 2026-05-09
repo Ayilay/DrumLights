@@ -495,6 +495,7 @@ void cmd_dump(const char *arg, uintptr_t cookie);
 void cmd_save(const char *arg, uintptr_t cookie);
 void cmd_stim(const char *arg, uintptr_t cookie);
 void cmd_color(const char *arg, uintptr_t cookie);
+void cmd_rgb(const char *arg, uintptr_t cookie);
 void cmd_thresh(const char *arg, uintptr_t cookie);
 void cmd_holdoff(const char *arg, uintptr_t cookie);
 void cmd_stream(const char *arg, uintptr_t cookie);
@@ -529,6 +530,7 @@ cli_command_t commands[] = {
   { "red","    [val] Get/Set the red value",   cmd_color, COLOR_RED },
   { "grn","    [val] Get/Set the green value", cmd_color, COLOR_GRN },
   { "blu","    [val] Get/Set the blue value",  cmd_color, COLOR_BLU },
+  { "rgb","    [val] Get/Set RGB color (e.g. hot pink is ff69b4)",  cmd_rgb, NULL },
 };
 
 //------------------------------------------------------------
@@ -622,8 +624,12 @@ void cmd_dump(const char *arg, uintptr_t cookie) {
   Serial.print(sett->sleepPeriodSecs);
   Serial.println();
 
-  Serial.print("LED Color");
-  Serial.println();
+  // Print both hex RGB color, and individual colors
+  char buf[16];
+  snprintf( buf, sizeof(buf), "%02x%02x%02x", settings.red, settings.green, settings.blue );
+
+  Serial.print("LED Color: ");
+  Serial.println( buf );
   Serial.print("  Red: ");
   Serial.println(sett->red);
   Serial.print("  Green: ");
@@ -665,6 +671,37 @@ void cmd_stream(const char *arg, uintptr_t cookie) {
     Serial.print( "Unrecognized option " );
     Serial.println( arg );
   }
+}
+
+void cmd_rgb(const char *arg, uintptr_t cookie) {
+
+  char buf[16];
+  memset( buf, 0, sizeof(buf) );
+
+  // No arg: print the value and exit
+  if( ! arg ){
+    snprintf( buf, sizeof(buf), "%02x%02x%02x", settings.red, settings.green, settings.blue );
+    Serial.print( "RGB Color (000000-ffffff): " );
+    Serial.println( buf );
+
+    return;
+  }
+
+  uint32_t color[3];
+  int nscan = 0;
+  nscan = sscanf( arg, "%02x%02x%02x", &color[0], &color[1], &color[2] );
+  if( nscan < 3 ){
+    Serial.println( "Color not parsed correctly. Must be format 000000 thru ffffff, e.g. 45ff97" );
+    return;
+  }
+
+  settings.red = color[0];
+  settings.green = color[1];
+  settings.blue = color[2];
+
+  snprintf( buf, sizeof(buf), "%02x%02x%02x", settings.red, settings.green, settings.blue );
+  Serial.print( "New RGB Color: " );
+  Serial.println( buf );
 }
 
 void cmd_color(const char *arg, uintptr_t cookie) {
